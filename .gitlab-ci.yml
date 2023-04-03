@@ -1,0 +1,334 @@
+stages:
+  - build-image-dev
+  - deploy-image-dev
+  - test-image-dev
+  - build-image-rc
+  - deploy-image-rc
+  - test-image-rc
+  - deploy-image-production
+  - delete-env-rc-force
+  - test-image-production
+  - cleanup-registry
+  - cleanup-builder
+
+build-image-dev:
+  stage: build-image-dev
+  tags:
+    - shell-dev-c3
+  variables:
+    CI_DEBUG_TRACE: "false"
+  only:
+    refs:
+      - "/^dev_.*$/"
+  except:
+    - schedules
+    - master
+  script:
+    - build_image
+
+dapp-flush-build-dev:
+  stage: build-image-dev
+  tags:
+    - shell-dev-c3
+  only:
+    refs:
+      - "/^dev_.*$/"
+  except:
+    - schedules
+    - master
+  when: manual
+  script:
+    - cleanup_builder
+
+deploy-dev-image:
+  stage: deploy-image-dev
+  environment:
+    name: ${CI_COMMIT_REF_SLUG}
+    url: "https://${CI_COMMIT_REF_SLUG}-${CI_PROJECT_PATH_SLUG}.${DEV_DOMAIN}"
+    on_stop: delete-env-dev
+  variables:
+    CI_DEBUG_TRACE: "false"
+  tags:
+    - shell-dev-c3
+  only:
+    refs:
+      - "/^dev_.*$/"
+  except:
+    - schedules
+    - master
+  script:
+    - deploy_image
+
+test-dev-image:
+  stage: test-image-dev
+  variables:
+    CI_DEBUG_TRACE: "false"
+  tags:
+    - shell-dev-c3
+  only:
+    refs:
+      - "/^dev_.*$/"
+  except:
+    - schedules
+    - master
+  script:
+    - test_lp
+
+delete-env-dev:
+  stage: deploy-image-dev
+  environment:
+    name: ${CI_COMMIT_REF_SLUG}
+    action: stop
+  variables:
+    CI_DEBUG_TRACE: "false"
+    GIT_STRATEGY: none
+  only:
+    refs:
+      - "/^dev_.*$/"
+  except:
+    - schedules
+    - master
+  tags:
+    - shell-dev-c3
+  when: manual
+  script:
+  - delete_env
+
+build-image-rc:
+  stage: build-image-rc
+  tags:
+    - shell-dev-c3
+  variables:
+    CI_DEBUG_TRACE: "false"
+  only:
+    - master
+  except:
+    - schedules
+  script:
+    - build_image
+
+dapp-flush-build-rc:
+  stage: build-image-rc
+  tags:
+    - shell-dev-c3
+  only:
+    - master
+  except:
+    - schedules
+  when: manual
+  script:
+    - cleanup_builder
+
+deploy-image-rc:
+  stage: deploy-image-rc
+  environment:
+    name: "rc"
+    url: "https://rc-${CI_PROJECT_PATH_SLUG}.${DEV_DOMAIN}"
+    on_stop: delete-env-rc
+  variables:
+    CI_DEBUG_TRACE: "false"
+  only:
+    - master
+  except:
+    - schedules
+  tags:
+    - shell-dev-c3
+  script:
+    - deploy_image
+
+test-image-rc:
+  stage: test-image-rc
+  tags:
+    - shell-dev-c3
+  only:
+    - master
+  except:
+    - schedules
+  script:
+    - test_lp
+  allow_failure: true
+  
+delete-env-rc:
+  stage: deploy-image-rc
+  environment:
+    name: "rc"
+    action: stop
+  variables:
+    CI_DEBUG_TRACE: "false"
+    GIT_STRATEGY: none
+  only:
+    - master
+  except:
+    - schedules
+  tags:
+    - shell-dev-c3
+  when: manual
+  script:
+    - delete_env
+
+deploy-production:
+  stage: deploy-image-production
+  environment:
+    name: "production"
+    url: "${PRODUCTION_URL}"
+  variables:
+    CI_DEBUG_TRACE: "false"
+  dependencies:
+    - deploy-image-rc
+  only:
+    - master
+  except:
+    - schedules
+  tags:
+    - shell-production
+  allow_failure: false
+  when: manual
+  script:
+    - deploy_image
+
+test-image-production:
+  stage: test-image-production
+  only:
+    - master
+  except:
+    - schedules
+  tags:
+    - shell-production
+  script:
+    - test_lp
+
+Cleanup registry:
+  stage: cleanup-registry
+  when: manual
+  only:
+    - schedules
+  tags:
+    - shell-dev-c3
+  script:
+    - cleanup_registry
+
+Cleanup builder:
+  stage: cleanup-builder
+  only:
+    - schedules
+  tags:
+    - shell-dev-c3
+  script:
+    - cleanup_builder
+
+# ---------------------------------------------------------------------------
+.auto_devops: &auto_devops |
+  # Auto DevOps variables and functions
+
+  export APP_NAMESPACE="${CI_ENVIRONMENT_SLUG}-${CI_PROJECT_PATH_SLUG}"
+
+  export DEVS=$( echo "${CI_COMMIT_REF_SLUG}" | grep "dev-" | wc -l)
+  if [ ${DEVS} -eq 1 ]
+  then 
+    export ENV_NAME="dev"
+    export REGISTRY_IMAGE="${REGISTRY_NAME_DEV}/${CI_COMMIT_REF_SLUG}-${CI_PROJECT_PATH_SLUG}"
+    export ADMIN_URL="https://admin-${CI_COMMIT_REF_SLUG}-${CI_PROJECT_PATH_SLUG}.${DEV_DOMAIN}"
+  else
+    export REGISTRY_IMAGE="${REGISTRY_NAME_PROD}/${CI_PROJECT_PATH_SLUG}"
+
+    if [ "${CI_ENVIRONMENT_NAME}" == "production" ]
+    then
+      if [ "${PRODUCTION_URL}" == "" ]
+      then
+        echo "PRODUCTION_URL not set!"
+        exit 1
+      fi
+      if [ "${ADMIN_PRODUCTION_URL}" == "" ]
+      then
+        echo "ADMIN_PRODUCTION_URL not set!"
+        exit 1
+      fi
+      export ENV_NAME="prod"
+      export APP_NAMESPACE="${CI_PROJECT_PATH_SLUG}"
+      export ADMIN_URL="${ADMIN_PRODUCTION_URL}"
+    else
+      export ENV_NAME="rc"
+      export ADMIN_URL="https://admin-rc-${CI_PROJECT_PATH_SLUG}.${DEV_DOMAIN}"
+    fi
+  fi
+
+  export DAPP_HELM_RELEASE_NAME=$(echo ${APP_NAMESPACE} | cut -c -53 | sed 's/\-$//')
+
+  build_image() {
+    dapp --version; pwd; set -x
+
+    dapp dimg bp --tag-ci \
+                 --registry-username "${REGISTRY_USER}" \
+                 --registry-password "${REGISTRY_PASSWORD}" \
+                 "${REGISTRY_IMAGE}"
+  }
+
+  delete_env() {
+    dapp --version; pwd; set -x
+    
+    dapp kube dismiss --namespace ${APP_NAMESPACE} --with-namespace
+
+    kubectl delete namespace ${APP_NAMESPACE} || echo ""
+
+    if [ "${ENV_NAME}" == "dev" ]
+    then
+      cleanup_registry
+
+      cleanup_builder
+    fi    
+  }
+
+  cleanup_registry() {
+    dapp --version; pwd; set -x
+
+    export KUBECONFIG="~/.kube/config"
+    
+    dapp dimg cleanup repo \
+                 --registry-username "${REGISTRY_USER}" \
+                 --registry-password "${REGISTRY_PASSWORD}" \
+                 "${REGISTRY_IMAGE}"
+  }
+
+  cleanup_builder() {
+    dapp --version; pwd; set -x
+
+    dapp dimg stages cleanup local \
+                     --improper-cache-version \
+                     --improper-git-commit \
+                     --improper-repo-cache \
+                     --registry-username "${REGISTRY_USER}" \
+                     --registry-password "${REGISTRY_PASSWORD}" \
+                     "${REGISTRY_IMAGE}"
+  }
+
+  deploy_image() {
+    dapp --version; pwd; set -x
+
+    kubectl get ns ${APP_NAMESPACE} || kubectl create namespace ${APP_NAMESPACE}
+
+    kubectl get secret docker-registry -n kube-system -o json |
+                    jq ".metadata.namespace = \"${APP_NAMESPACE}\"|
+                    del(.metadata.annotations,.metadata.creationTimestamp,.metadata.resourceVersion,.metadata.selfLink,.metadata.uid)" |
+                    kubectl apply -f -
+
+    kubectl get secret docker-registry-dev -n kube-system -o json |
+                    jq ".metadata.namespace = \"${APP_NAMESPACE}\"|
+                    del(.metadata.annotations,.metadata.creationTimestamp,.metadata.resourceVersion,.metadata.selfLink,.metadata.uid)" |
+                    kubectl apply -f -
+
+    dapp kube deploy \
+      --tag-ci \
+      --namespace ${APP_NAMESPACE} \
+      --set "global.env=${CI_ENVIRONMENT_SLUG}" \
+      --set "global.ci_url=$(echo ${CI_ENVIRONMENT_URL} | cut -d / -f 3)" \
+      --set "global.env_name=${ENV_NAME}" \
+      --set "global.admin_ci_url=$(echo ${ADMIN_URL} | cut -d / -f 3)" \
+      "${REGISTRY_IMAGE}"
+  }
+
+  test_lp() {
+    echo "Test run"
+  }
+
+before_script:
+  - *auto_devops

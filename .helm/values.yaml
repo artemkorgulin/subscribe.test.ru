@@ -1,0 +1,15 @@
+mysql:
+  dev:
+    host: mysql
+    port: "3306"
+    rootPassword: 0KgFaJe52jLx
+    user: yii2
+    password: QzDsP6kY3U0S
+    database: yii2
+  rc:
+    host: mysql
+    port: "3306"
+    rootPassword: 0KgFaJe52jLx
+    user: yii2
+    password: QzDsP6kY3U0S
+    database: yii2

@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: php-fpm-config-1
+data:
+  php.ini: |
+{{- if eq .Values.global.env_name "prod" }}
+{{ (.Files.Get "conf/php-fpm/php.ini-production") | indent 4 }}
+{{- else }}
+{{ (.Files.Get "conf/php-fpm/php.ini-development") | indent 4 }}
+{{- end }}
+  base.ini: |
+{{ (.Files.Get "conf/php-fpm/base.ini") | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: php-fpm-config-2
+data:
+  {{- (.Files.Glob "conf/php-fpm/php-fpm.d/*").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-frontend-config-1
+data:
+  {{- (.Files.Glob "conf/nginx-frontend/*").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-frontend-config-2
+data:
+  {{- (.Files.Glob "conf/nginx-frontend/conf.d/*").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-backend-config-1
+data:
+  {{- (.Files.Glob "conf/nginx-backend/*").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-backend-config-2
+data:
+  {{- (.Files.Glob "conf/nginx-backend/conf.d/*").AsConfig | nindent 2 }}
+---

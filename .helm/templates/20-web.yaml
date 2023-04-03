@@ -1,0 +1,183 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/25-web-cm.yaml") . | sha256sum }}
+    spec:
+      initContainers:
+      - name: take-frontend-assets-ownership
+        image: busybox
+        command: ["sh", "-c", "chown -R 33:33 /var/www/html/frontend/web/assets"]
+        volumeMounts:
+        - name: frontend-assets
+          mountPath:  /var/www/html/frontend/web/assets
+      - name: take-backend-assets-ownership
+        image: busybox
+        command: ["sh", "-c", "chown -R 33:33 /var/www/html/backend/web/assets"]
+        volumeMounts:
+        - name: frontend-assets
+          mountPath:  /var/www/html/backend/web/assets
+      - name: migrate
+{{ tuple "php-fpm" . | include "dapp_container_image" | indent 8 }}
+        command: ["/migrate.sh"]
+        args: [{{ .Values.global.env_name }}] 
+        env:
+{{ tuple "php-fpm" . | include "dapp_container_env" | indent 8 }}
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlHost
+        - name: MYSQL_PORT
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlPort
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlDatabase
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlUser
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlPassword
+      containers:
+      - name: php-fpm
+{{ tuple "php-fpm" . | include "dapp_container_image" | indent 8 }}
+        env:
+{{ tuple "php-fpm" . | include "dapp_container_env" | indent 8 }}
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlHost
+        - name: MYSQL_PORT
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlPort
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlDatabase
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlUser
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: secrets
+              key: mysqlPassword
+        ports:
+        - name: php-fpm
+          containerPort: 9000
+        volumeMounts:
+        - name: php-fpm-config-1
+          mountPath: /php-conf
+        - name: php-fpm-config-2
+          mountPath: /usr/local/etc/php-fpm.d
+        - name: frontend-assets
+          mountPath:  /var/www/html/frontend/web/assets
+        - name: backend-assets
+          mountPath:  /var/www/html/backend/web/assets
+      - name: nginx-frontend
+{{ tuple "nginx-frontend" . | include "dapp_container_image" | indent 8 }}
+        env:
+{{ tuple "nginx-frontend" . | include "dapp_container_env" | indent 10 }}
+        ports:
+        - name: http
+          containerPort: 80
+        volumeMounts:
+        - name: nginx-frontend-config-1
+          mountPath: /etc/nginx
+        - name: nginx-frontend-config-2
+          mountPath: /etc/nginx/conf.d
+        - name: frontend-assets
+          mountPath:  /var/www/html/frontend/web/assets
+      - name: nginx-backend
+{{ tuple "nginx-backend" . | include "dapp_container_image" | indent 8 }}
+        env:
+{{ tuple "nginx-backend" . | include "dapp_container_env" | indent 10 }}
+        ports:
+        - name: http
+          containerPort: 81
+        volumeMounts:
+        - name: nginx-backend-config-1
+          mountPath: /etc/nginx
+        - name: nginx-backend-config-2
+          mountPath: /etc/nginx/conf.d
+        - name: backend-assets
+          mountPath:  /var/www/html/backend/web/assets
+      volumes:
+        - name: php-fpm-config-1
+          configMap:
+            name: php-fpm-config-1
+        - name: php-fpm-config-2
+          configMap:
+            name: php-fpm-config-2
+        - name: nginx-backend-config-1
+          configMap:
+            name: nginx-backend-config-1
+        - name: nginx-backend-config-2
+          configMap:
+            name: nginx-backend-config-2
+        - name: nginx-frontend-config-1
+          configMap:
+            name: nginx-frontend-config-1
+        - name: nginx-frontend-config-2
+          configMap:
+            name: nginx-frontend-config-2
+        - name: frontend-assets
+          emptyDir: {}
+        - name: backend-assets
+          emptyDir: {}
+      imagePullSecrets:
+        - name: docker-registry{{- if eq .Values.global.env_name "dev" }}-dev{{- end}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-backend
+spec:
+  ports:
+  - port: 81
+    name: http
+  selector:
+    app: web
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-frontend
+spec:
+  ports:
+  - port: 80
+    name: http
+  selector:
+    app: web
+---

@@ -1,0 +1,40 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
+    {{- if eq .Values.global.env_name "dev" }}
+    nginx.ingress.kubernetes.io/auth-url: "http://dev-auth.auth.svc.cluster.local"
+    {{- end }}
+  name: ingress-frontend
+spec:
+  rules:
+      - host: {{ .Values.global.ci_url }}
+        http:
+          paths:
+          - backend:
+              serviceName: nginx-frontend
+              servicePort: 80
+            path: /
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/from-to-www-redirect: "true"
+    {{- if eq .Values.global.env_name "dev" }}
+    nginx.ingress.kubernetes.io/auth-url: "http://dev-auth.auth.svc.cluster.local"
+    {{- end }}
+  name: ingress-backend
+spec:
+  rules:
+      - host: {{ .Values.global.admin_ci_url }}
+        http:
+          paths:
+          - backend:
+              serviceName: nginx-backend
+              servicePort: 81
+            path: /
+---

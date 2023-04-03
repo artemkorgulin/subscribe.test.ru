@@ -1,0 +1,12 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: syslog-ext
+spec:
+  type: ExternalName
+  {{- if eq .Values.global.env_name "prod" }}
+  externalName: syslog.subscribe.test.ru
+  {{- else }}
+  externalName: syslog2.subscribe.test.ru
+  {{- end }}
+---
